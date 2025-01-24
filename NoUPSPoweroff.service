@@ -1,0 +1,20 @@
+# REPLACE USERNAME !
+
+[Unit]
+Description=NoUPSPoweroff Remote Server Poweroff
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/NoUPSPoweroff.sh
+Restart=always
+RestartSec=60
+User=USERNAME
+WorkingDirectory=/home/USERNAME
+StandardOutput=journal
+StandardError=journal
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=SSH_AUTH_SOCK=%t/keyring/ssh
+
+[Install]
+WantedBy=multi-user.target
