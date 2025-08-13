@@ -2,22 +2,25 @@
 
 set -euo pipefail
 
-# Configuration
-BATTERY_FILE="/tmp/on_battery_timestamp"
-SHUTDOWN_FLAG="/tmp/shutdown_initiated"
-STATUS_FILE="/tmp/last_status_update"
-MINUTES=30
-SLEEP_INTERVAL=5 # seconds
-STATUS_INTERVAL=150 # seconds
-MIN_BATTERY=8 # Percentage
 LOG_PREFIX="[$(date '+%Y-%m-%d %H:%M:%S')]"
 
-# Validate configuration
+# Load configuration from file
 CONFIG_FILE="/etc/NoUPSPoweroff.conf"
-if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo "$LOG_PREFIX Error: Configuration file not found"
-    exit 1
-fi
+[[ ! -f "$CONFIG_FILE" ]] && { echo "$LOG_PREFIX Error: Configuration file not found"; exit 1; }
+
+# Read config
+eval "$(awk '/^\[general\]/{f=1;next} /^\[/{f=0} f && /^[^#]/ && /=/ {print $0}' "$CONFIG_FILE")"
+
+# Set variables with defaults
+BATTERY_FILE="${battery_file:-/tmp/noupspoweroff_battery_timestamp}"
+SHUTDOWN_FLAG="${shutdown_flag:-/tmp/noupspoweroff_shutdown_initiated}"  
+STATUS_FILE="${status_file:-/tmp/noupspoweroff_last_status_update}"
+AC_RESTORE_FILE="${ac_restore_file:-/tmp/noupspoweroff_ac_restore_timestamp}"
+MINUTES="${minutes:-25}"
+SLEEP_INTERVAL="${sleep_interval:-5}"
+STATUS_INTERVAL="${status_interval:-120}"
+MIN_BATTERY="${min_battery:-10}"
+AC_STABLE_TIME="${ac_stable_time:-300}"
 
 # path validation
 [[ ! -x "$(command -v ssh)" ]] && {
@@ -35,6 +38,7 @@ fi
 cleanup() {
     [[ -f "$BATTERY_FILE" ]] && rm -f "$BATTERY_FILE"
     [[ -f "$SHUTDOWN_FLAG" ]] && rm -f "$SHUTDOWN_FLAG"
+    [[ -f "$AC_RESTORE_FILE" ]] && rm -f "$AC_RESTORE_FILE"
     exit 0
 }
 trap cleanup SIGINT SIGTERM
@@ -65,7 +69,7 @@ initiate_shutdown() {
 }
 
 reset_state() {
-    rm -f "$BATTERY_FILE" "$SHUTDOWN_FLAG"
+    rm -f "$BATTERY_FILE" "$SHUTDOWN_FLAG" "$AC_RESTORE_FILE"
 }
 
 format_countdown() {
@@ -88,9 +92,8 @@ log_status() {
 
 while true; do
     if ! command -v acpi >/dev/null 2>&1; then
-        echo "$LOG_PREFIX Error: acpi command not found"
-        sleep 60
-        continue
+        echo "$LOG_PREFIX Error: acpi command not found. Please install acpi package (e.g., 'sudo apt install acpi')"
+        exit 1
     fi
 
     BATTERY_INFO=$(acpi -b) || {
@@ -113,7 +116,9 @@ while true; do
     fi
 
     if ! check_power_state; then
-        # On battery power
+        # On battery power - remove AC restore file if it exists
+        [[ -f "$AC_RESTORE_FILE" ]] && rm -f "$AC_RESTORE_FILE"
+        
         if [ "$BATTERY_PCT" -lt "$MIN_BATTERY" ]; then
             echo "$LOG_PREFIX Battery critically low (${BATTERY_PCT}%), initiating immediate shutdown"
             while IFS= read -r line; do
@@ -159,8 +164,28 @@ while true; do
     else
         # On AC power
         if [[ -f "$BATTERY_FILE" ]] || [[ -f "$SHUTDOWN_FLAG" ]]; then
-            echo "$LOG_PREFIX Power restored ($BATTERY_PCT%). Cancelling any pending shutdown"
-            reset_state
+            # Check if we need to track AC restore time
+            if [[ ! -f "$AC_RESTORE_FILE" ]]; then
+                date +%s > "$AC_RESTORE_FILE"
+                echo "$LOG_PREFIX Power restored ($BATTERY_PCT%). Waiting $(( AC_STABLE_TIME / 60 )) minutes for stable power before cancelling shutdown"
+            else
+                # Check if AC has been stable long enough
+                AC_RESTORE_START=$(cat "$AC_RESTORE_FILE")
+                NOW=$(date +%s)
+                STABLE_SECONDS=$(( NOW - AC_RESTORE_START ))
+                
+                if [ "$STABLE_SECONDS" -ge "$AC_STABLE_TIME" ]; then
+                    echo "$LOG_PREFIX AC power stable for $(( STABLE_SECONDS / 60 )) minutes. Cancelling pending shutdown"
+                    reset_state
+                else
+                    REMAINING_SECONDS=$(( AC_STABLE_TIME - STABLE_SECONDS ))
+                    REMAINING_TIME=$(format_countdown "$REMAINING_SECONDS")
+                    echo "$LOG_PREFIX AC power stable for $(( STABLE_SECONDS / 60 ))m. Shutdown cancelled in $REMAINING_TIME if power remains stable"
+                fi
+            fi
+        else
+            # No pending shutdown, remove AC restore file if it exists
+            [[ -f "$AC_RESTORE_FILE" ]] && rm -f "$AC_RESTORE_FILE"
         fi
     fi
 

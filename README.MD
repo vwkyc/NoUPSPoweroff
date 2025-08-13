@@ -2,7 +2,7 @@
 
 ## Problem Statement
 
-The remote server relies on a basic UPS that lacks advanced monitoring capabilities. To ensure the server can be gracefully shut down during a power outage, we need an external method to monitor the power state by using the battery status of another device (e.g., laptop).
+The in house server is powered by a basic UPS that lacks advanced monitoring capabilities. To ensure the server can be gracefully shut down during a power outage, we need an external method to monitor the power state by using the battery status of another device (e.g., laptop).
 
 ### Solution Evaluation
 
@@ -25,7 +25,7 @@ When executing `sudo poweroff`, this assumes the hypervisor can gracefully shut 
 - Linux with systemd
 - `acpi` package (`sudo apt install acpi`)
 - SSH key-based authentication configured
-- Passwordless sudo on the remote machine
+- Passwordless sudo on the UPS powered server
 
 # Installation
 
@@ -38,7 +38,15 @@ When executing `sudo poweroff`, this assumes the hypervisor can gracefully shut 
 
 ## Configuration
 
-1. edit the configuration file `NoUPSPoweroff.conf`
+1. Edit the configuration file `NoUPSPoweroff.conf`:
+   - **General Settings**:
+     - `minutes`: Time to wait before shutdown when on battery (default: 25)
+     - `sleep_interval`: Sleep interval between checks in seconds (default: 5)
+     - `status_interval`: Status update interval in seconds (default: 120)
+     - `min_battery`: Minimum battery percentage before immediate shutdown (default: 10)
+     - `ac_stable_time`: AC power stability time before cancelling shutdown in seconds (default: 300 = 5 minutes)
+   - **File Paths**: All temporary files use unique `noupspoweroff_` prefixes to prevent conflicts
+   - **Servers**: Define multiple servers to shutdown with `[serverN]` sections
 
 2. Edit username in `NoUPSPoweroff.service`
 
@@ -51,9 +59,9 @@ When executing `sudo poweroff`, this assumes the hypervisor can gracefully shut 
     sudo systemctl enable NoUPSPoweroff.service --now
     ```
 
-## Remote Poweroff
+## ssh Poweroff
 
-Allow passwordless poweroff on the remote server:
+Allow passwordless poweroff on the UPS powered server:
 
 1. Allow the user `USERNAME` to execute `sudo poweroff` without a password:
     ```bash
@@ -102,7 +110,19 @@ Assume your server consumes 90 W, and your UPS has a battery capacity of 7.0 Ah 
    Runtime (hours) = 84 Wh / 90 W = 0.933 hours = 56 minutes
    ```
 
-In this scenario, the estimated runtime is approximately 56 minutes. To ensure a safe shutdown before the UPS battery is fully depleted, it's advisable to set the MINUTES variable in your script to a value slightly less than this estimate, accounting for factors like battery aging and efficiency losses.
+In this scenario, the estimated runtime is approximately 56 minutes. To ensure a safe shutdown before the UPS battery is fully depleted, it's advisable to set the `minutes` variable in your configuration to a value slightly less than this estimate, accounting for factors like battery aging and efficiency losses.
+
+## Power Restoration Behavior
+
+When AC power is restored after a power outage:
+
+1. **Immediate Detection**: The script detects AC power restoration immediately
+2. **Stability Period**: AC power must remain stable for 5 minutes (configurable via `ac_stable_time`) before cancelling any pending shutdown
+3. **Progress Updates**: During the stability period, the script logs progress every check interval
+4. **Power Flicker Protection**: If power is lost again during the stability period, the timer resets
+5. **Shutdown Cancellation**: Only after the full stability period does the script cancel the pending shutdown
+
+This prevents false cancellations from brief power flickers or unstable power conditions.
 
 ## Status & Logs
 
