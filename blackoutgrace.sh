@@ -5,17 +5,17 @@ set -euo pipefail
 LOG_PREFIX="[$(date '+%Y-%m-%d %H:%M:%S')]"
 
 # Load configuration from file
-CONFIG_FILE="/etc/NoUPSPoweroff.conf"
+CONFIG_FILE="/etc/blackoutgrace.conf"
 [[ ! -f "$CONFIG_FILE" ]] && { echo "$LOG_PREFIX Error: Configuration file not found"; exit 1; }
 
 # Read config
-eval "$(awk '/^\[general\]/{f=1;next} /^\[/{f=0} f && /^[^#]/ && /=/ {print $0}' "$CONFIG_FILE")"
+eval "$(awk '/^\[general\]/{f=1;next} /^\[/{f=0} f && /^[^#]/ && /=/ {print $0}' \"$CONFIG_FILE\")"
 
 # Set variables with defaults
-BATTERY_FILE="${battery_file:-/tmp/noupspoweroff_battery_timestamp}"
-SHUTDOWN_FLAG="${shutdown_flag:-/tmp/noupspoweroff_shutdown_initiated}"  
-STATUS_FILE="${status_file:-/tmp/noupspoweroff_last_status_update}"
-AC_RESTORE_FILE="${ac_restore_file:-/tmp/noupspoweroff_ac_restore_timestamp}"
+BATTERY_FILE="${battery_file:-/tmp/blackoutgrace_battery_timestamp}"
+SHUTDOWN_FLAG="${shutdown_flag:-/tmp/blackoutgrace_shutdown_initiated}"  
+STATUS_FILE="${status_file:-/tmp/blackoutgrace_last_status_update}"
+AC_RESTORE_FILE="${ac_restore_file:-/tmp/blackoutgrace_ac_restore_timestamp}"
 MINUTES="${minutes:-25}"
 SLEEP_INTERVAL="${sleep_interval:-5}"
 STATUS_INTERVAL="${status_interval:-120}"

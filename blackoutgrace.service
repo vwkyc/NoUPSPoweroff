@@ -1,12 +1,12 @@
 # REPLACE USERNAME !
 
 [Unit]
-Description=NoUPSPoweroff Remote Server Poweroff
+Description=blackoutgrace Remote Server Poweroff
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/NoUPSPoweroff.sh
+ExecStart=/usr/local/bin/blackoutgrace.sh
 Restart=always
 RestartSec=60
 User=USERNAME

@@ -1,166 +1,79 @@
-# NoUPSPoweroff
+# BlackoutGrace
 
-## Problem Statement
+## Overview
 
-The in house server is powered by a basic UPS that lacks advanced monitoring capabilities. To ensure the server can be gracefully shut down during a power outage, we need an external method to monitor the power state by using the battery status of another device (e.g., laptop).
+BlackoutGrace is a lightweight utility that detects mains power loss from a battery-powered monitoring host and performs graceful shutdowns of remote servers via SSH. It's designed for simple UPS setups without monitoring functionality.
 
-### Solution Evaluation
+Key features:
+- No extra hardware required
+- Multi-server support via SSH
+- Configurable shutdown delay and battery thresholds
+- Stable-power detection to avoid reacting to short flickers
 
-**Benefits:**
-- No additional hardware needed
-- Simple implementation
-- Quick response to power outages
+## Installation
 
-**Considerations:**
-- Depends on the laptop being operational
-- Single point of monitoring
-- Network connectivity required
+Clone the repository and make the script executable:
 
-## Warning
+```bash
+git clone https://github.com/vwkyc/blackoutgrace.git
+cd blackoutgrace
+chmod +x blackoutgrace.sh
+```
 
-When executing `sudo poweroff`, this assumes the hypervisor can gracefully shut down VMs (e.g., Proxmox). Make sure your hypervisor supports this.
+## Deployment
 
-## Prerequisites
+1. Copy files to system locations (adjust usernames as needed):
 
-- Linux with systemd
-- `acpi` package (`sudo apt install acpi`)
-- SSH key-based authentication configured
-- Passwordless sudo on the UPS powered server
+```bash
+sudo install -m 755 blackoutgrace.sh /usr/local/bin/
+sudo cp blackoutgrace.service /etc/systemd/system/
+sudo cp blackoutgrace.conf /etc/
+```
 
-# Installation
+2. Reload systemd and enable the service:
 
-1. Clone the repository and prepare the script:
-    ```bash
-    git clone https://github.com/vwkyc/NoUPSPoweroff.git
-    cd NoUPSPoweroff
-    chmod +x NoUPSPoweroff.sh
-    ```
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable blackoutgrace.service --now
+```
 
 ## Configuration
 
-1. Edit the configuration file `NoUPSPoweroff.conf`:
-   - **General Settings**:
-     - `minutes`: Time to wait before shutdown when on battery (default: 25)
-     - `sleep_interval`: Sleep interval between checks in seconds (default: 5)
-     - `status_interval`: Status update interval in seconds (default: 120)
-     - `min_battery`: Minimum battery percentage before immediate shutdown (default: 10)
-     - `ac_stable_time`: AC power stability time before cancelling shutdown in seconds (default: 300 = 5 minutes)
-   - **File Paths**: All temporary files use unique `noupspoweroff_` prefixes to prevent conflicts
-   - **Servers**: Define multiple servers to shutdown with `[serverN]` sections
+Edit `/etc/blackoutgrace.conf` to set the shutdown delay, battery thresholds, and the target servers (use `[serverN]` sections with `user` and `host` keys).
 
-2. Edit username in `NoUPSPoweroff.service`
+Core parameters in the `[general]` section include:
+- `minutes`: Shutdown delay on battery power (default: 25)
+- `sleep_interval`: Check frequency in seconds (default: 5)
+- `min_battery`: Critical battery threshold for immediate shutdown (default: 10)
+- `ac_stable_time`: Time AC must remain stable before cancelling shutdown (default: 300)
 
-3. Install the script and service:
-    ```bash
-    sudo install -m 755 NoUPSPoweroff.sh /usr/local/bin/
-    sudo cp NoUPSPoweroff.service /etc/systemd/system/
-    sudo cp NoUPSPoweroff.conf /etc/
-    sudo systemctl daemon-reload
-    sudo systemctl enable NoUPSPoweroff.service --now
-    ```
+## Server setup
 
-## ssh Poweroff
+Ensure the target servers allow passwordless sudo for shutdown commands and that SSH key-based authentication is configured.
 
-Allow passwordless poweroff on the UPS powered server:
+Add to sudoers (via `visudo`) on each target server:
 
-1. Allow the user `USERNAME` to execute `sudo poweroff` without a password:
-    ```bash
-    sudo visudo
-    ```
-
-2. Add the following line at the end:
-    ```plaintext
-    USERNAME ALL=(ALL) NOPASSWD: /sbin/poweroff, /sbin/reboot, /sbin/shutdown
-    ```
-
-## UPS Runtime Calculation
-
-To determine the appropriate `MINUTES` value for the script, you need to calculate the expected runtime of your server on the UPS. Follow these steps:
-
-1. **Identify Your Server's Power Consumption**:
-   - Measure the power usage of your server in watts (W). This can be found in the server's documentation or by using a power meter.
-
-2. **Determine Your UPS Battery's Capacity**:
-   - Find the battery's capacity, typically expressed in ampere-hours (Ah) and voltage (V). This information is usually provided by the UPS manufacturer.
-
-3. **Calculate the Battery's Total Energy Storage**:
-   - Use the formula:
-     ```plaintext
-     Battery Energy (Wh) = Battery Capacity (Ah) × Battery Voltage (V)
-     ```
-
-4. **Estimate the UPS Runtime**:
-   - Apply the formula:
-     ```plaintext
-     Runtime (hours) = Battery Energy (Wh) / Server Power Consumption (W)
-     ```
-   - Convert the runtime to minutes by multiplying by 60.
-
-### Example Calculation
-
-Assume your server consumes 90 W, and your UPS has a battery capacity of 7.0 Ah at 12 V:
-
-1. **Calculate Total Battery Energy**:
-   ```plaintext
-   7.0 Ah × 12 V = 84 Wh
-   ```
-
-2. **Determine Runtime**:
-   ```plaintext
-   Runtime (hours) = 84 Wh / 90 W = 0.933 hours = 56 minutes
-   ```
-
-In this scenario, the estimated runtime is approximately 56 minutes. To ensure a safe shutdown before the UPS battery is fully depleted, it's advisable to set the `minutes` variable in your configuration to a value slightly less than this estimate, accounting for factors like battery aging and efficiency losses.
-
-## Power Restoration Behavior
-
-When AC power is restored after a power outage:
-
-1. **Immediate Detection**: The script detects AC power restoration immediately
-2. **Stability Period**: AC power must remain stable for 5 minutes (configurable via `ac_stable_time`) before cancelling any pending shutdown
-3. **Progress Updates**: During the stability period, the script logs progress every check interval
-4. **Power Flicker Protection**: If power is lost again during the stability period, the timer resets
-5. **Shutdown Cancellation**: Only after the full stability period does the script cancel the pending shutdown
-
-This prevents false cancellations from brief power flickers or unstable power conditions.
-
-## Status & Logs
-
-Monitor the service status and logs:
-```bash
-systemctl status NoUPSPoweroff.service
-journalctl -u NoUPSPoweroff.service -f
+```text
+USERNAME ALL=(ALL) NOPASSWD: /sbin/poweroff, /sbin/reboot, /sbin/shutdown
 ```
 
-## Troubleshooting
+## Monitoring & Logs
 
-1. Check permissions:
-    ```bash
-    ls -l /usr/local/bin/NoUPSPoweroff.sh
-    ```
+View status and logs with systemd/journalctl:
 
-2. Check logs:
-    ```bash
-    journalctl -u NoUPSPoweroff.service -f
-    ```
+```bash
+sudo systemctl status blackoutgrace.service
+journalctl -u blackoutgrace.service -f
+```
 
 ## Uninstallation
 
-To disable and remove the NoUPSPoweroff service, follow these steps:
+To remove the service and script:
 
-1. Stop and disable the service:
-    ```bash
-    sudo systemctl stop NoUPSPoweroff.service
-    sudo systemctl disable NoUPSPoweroff.service
-    ```
-
-2. Remove the service file and script:
-    ```bash
-    sudo rm /etc/systemd/system/NoUPSPoweroff.service
-    sudo rm /usr/local/bin/NoUPSPoweroff.sh
-    ```
-
-3. Reload the systemd daemon to apply changes:
-    ```bash
-    sudo systemctl daemon-reload
-    ```
+```bash
+sudo systemctl stop blackoutgrace.service
+sudo systemctl disable blackoutgrace.service
+sudo rm /etc/systemd/system/blackoutgrace.service
+sudo rm /usr/local/bin/blackoutgrace.sh
+sudo systemctl daemon-reload
+```
